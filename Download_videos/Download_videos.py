@@ -6,10 +6,10 @@ Created on Tue Oct  6 09:50:24 2026
 """
 
 """
-Détecte les nouvelles vidéos de tes chaînes YouTube, affiche leurs miniatures
+Détecte les nouvelles vidéos des chaînes YouTube, affiche leurs miniatures
 dans le navigateur pour validation, puis télécharge celles que tu as cochées.
  
-Prérequis : pip install yt-dlp   (+ ffmpeg installé sur le système)
+Prérequis : pip install yt-dlp et ffmpeg installé sur le système
 Fichiers  : channels.txt (une URL de chaîne par ligne, à côté du script)
 """
 import html
@@ -23,14 +23,14 @@ from urllib.parse import parse_qs
 from yt_dlp import YoutubeDL
  
 BASE = Path(__file__).parent
-CHANNELS_FILE = BASE / "channels.txt"
+CHANNELS_FILE = BASE / "channels.txt" # URL list of the channels followed
 STATE_FILE = BASE / "deja_vues.json"
 DOWNLOAD_DIR = BASE / "telechargements"
-MAX_PAR_CHAINE = 10   # nombre de vidéos récentes examinées par chaîne
+MAX_PAR_CHAINE = 3   # Number of video for each channel
 PORT = 8765
  
  
-# ---------- 1. Récupération des nouvelles vidéos ----------
+# ---------- Resume the new video and open a window ----------
 def charger_deja_vues():
     if STATE_FILE.exists():
         return set(json.loads(STATE_FILE.read_text(encoding="utf-8")))
@@ -38,7 +38,7 @@ def charger_deja_vues():
  
  
 def sauver_deja_vues(ids):
-    STATE_FILE.write_text(json.dumps(sorted(ids)), encoding="utf-8")
+    STATE_FILE.write_text(json.dumps(sorted(ids)), encoding="utf-8") #Stock the previous video already proposed
  
  
 def chercher_nouvelles(deja_vues):
@@ -66,7 +66,7 @@ def chercher_nouvelles(deja_vues):
     return nouvelles
  
  
-# ---------- 2. Page de validation ----------
+# ---------- Validate each video to download them ----------
 def page_html(videos):
     cartes = "".join(f"""
       <label class="carte">
@@ -127,7 +127,7 @@ def demander_validation(videos):
     return resultat["ids"]
  
  
-# ---------- 3. Téléchargement ----------
+# ---------- Download the video with ffmpeg ----------
 def telecharger(ids):
     opts = {
         "format": "bv*[height<=1080]+ba/b",
