@@ -12,6 +12,7 @@ dans le navigateur pour validation, puis télécharge celles que tu as cochées.
 Prérequis : pip install yt-dlp et ffmpeg installé sur le système
 Fichiers  : channels.txt (une URL de chaîne par ligne, à côté du script)
 """
+import sys
 import html
 import json
 import threading
@@ -21,8 +22,11 @@ from pathlib import Path
 from urllib.parse import parse_qs
  
 from yt_dlp import YoutubeDL
- 
-BASE = Path(__file__).parent
+
+if getattr(sys, "frozen", False):
+    BASE = Path(sys.executable).parent
+else:
+    BASE = Path(__file__).parent
 CHANNELS_FILE = BASE / "channels.txt" # URL list of the channels followed
 STATE_FILE = BASE / "deja_vues.json"
 DOWNLOAD_DIR = BASE / "telechargements"
