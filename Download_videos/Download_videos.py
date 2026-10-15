@@ -1,11 +1,5 @@
 # -*- coding: utf-8 -*-
 """
-Created on Tue Oct  6 09:50:24 2026
-
-@author: sthieblemont
-"""
-
-"""
 Détecte les nouvelles vidéos des chaînes YouTube, affiche leurs miniatures
 dans le navigateur pour validation, puis télécharge celles que tu as cochées.
  
