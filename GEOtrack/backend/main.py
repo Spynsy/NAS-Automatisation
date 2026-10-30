@@ -7,11 +7,13 @@ import gpxpy
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from database import Base, engine, get_db
+from categories import CATEGORIES, deviner_categorie
 from models import Fichier, Tag, Trace, Waypoint, traces_tags
+from gpxpy.geo import haversine_distance
 
 Base.metadata.create_all(engine)  # crée les tables manquantes (dont tags)
 
@@ -27,6 +29,9 @@ class TagEntree(BaseModel):
 
 class TagsTrace(BaseModel):
     tag_ids: list[int]
+    
+class WaypointMaj(BaseModel):
+    categorie: str
 
 
 # ---------- Import ----------
@@ -49,7 +54,14 @@ async def importer(fichier: UploadFile = File(...), db: Session = Depends(get_db
 
     for w in gpx.waypoints:
         entree.waypoints.append(
-            Waypoint(nom=w.name, lat=w.latitude, lon=w.longitude, altitude=w.elevation)
+            Waypoint(
+                nom=w.name,
+                lat=w.latitude,
+                lon=w.longitude,
+                altitude=w.elevation,
+                symbole=w.symbol,
+                categorie=deviner_categorie(w.symbol, w.name),
+            )
         )
 
     for t in gpx.tracks:
@@ -72,7 +84,7 @@ async def importer(fichier: UploadFile = File(...), db: Session = Depends(get_db
                 lat_max=bornes.max_latitude,
                 lon_min=bornes.min_longitude,
                 lon_max=bornes.max_longitude,
-                geometrie=[[p.longitude, p.latitude] for p in points],
+                geometrie=[[p.longitude, p.latitude, p.elevation] for p in points],
             )
         )
 
@@ -98,6 +110,7 @@ def liste_tracks(
     date_fin: Optional[date] = None,
     bbox: Optional[str] = None,  # "ouest,sud,est,nord"
     tags: list[int] = Query(default=[]),  # ?tags=1&tags=3
+    categories: list[str] = Query(default=[]),  # ?categories=camping&categories=eau
     db: Session = Depends(get_db),
 ):
     lon_min = lat_min = lon_max = lat_max = None
@@ -144,6 +157,11 @@ def liste_tracks(
             Waypoint.lon.between(lon_min, lon_max),
             Waypoint.lat.between(lat_min, lat_max),
         )
+    if categories:
+        condition = Waypoint.categorie.in_(categories)
+        if "autre" in categories:  # "autre" inclut les waypoints sans catégorie
+            condition = or_(condition, Waypoint.categorie.is_(None))
+        requete_w = requete_w.where(condition)
 
     features = []
 
@@ -153,7 +171,13 @@ def liste_tracks(
         features.append({
             "type": "Feature",
             "geometry": {"type": "Point", "coordinates": [w.lon, w.lat]},
-            "properties": {"type": "waypoint", "id": w.id, "name": w.nom},
+            "properties": {
+                "type": "waypoint",
+                "id": w.id,
+                "name": w.nom,
+                "altitude": w.altitude,
+                "categorie": w.categorie or "autre",
+            },
         })
 
     for t in db.scalars(requete):
@@ -231,6 +255,66 @@ def definir_tags(trace_id: int, donnees: TagsTrace, db: Session = Depends(get_db
     db.commit()
     return {"id": trace.id, "tags": [g.id for g in trace.tags]}
 
+@app.get("/traces/{trace_id}")
+def detail_trace(trace_id: int, db: Session = Depends(get_db)):
+    trace = db.get(Trace, trace_id)
+    if not trace:
+        raise HTTPException(status_code=404, detail="Trace introuvable.")
+
+    # Profil : une liste de [distance cumulée (km), altitude, lon, lat]
+    profil = []
+    cumul = 0.0
+    precedent = None
+    for p in trace.geometrie:
+        lon, lat = p[0], p[1]
+        altitude = p[2] if len(p) > 2 else None
+        if precedent is not None:
+            cumul += haversine_distance(precedent[1], precedent[0], lat, lon)
+        precedent = (lon, lat)
+        if altitude is not None:
+            profil.append([round(cumul / 1000, 3), altitude, lon, lat])
+
+    # On allège : environ 500 points suffisent pour dessiner la courbe
+    pas = max(1, len(profil) // 500)
+    allege = profil[::pas]
+    if profil and allege[-1] is not profil[-1]:
+        allege.append(profil[-1])
+
+    altitudes = [p[1] for p in profil]
+    return {
+        "id": trace.id,
+        "nom": trace.nom,
+        "distance_km": trace.distance_km,
+        "d_plus": trace.d_plus,
+        "d_moins": trace.d_moins,
+        "duree_s": trace.duree_s,
+        "debut": trace.debut.isoformat() if trace.debut else None,
+        "alt_min": round(min(altitudes)) if altitudes else None,
+        "alt_max": round(max(altitudes)) if altitudes else None,
+        "tags": [
+            {"id": g.id, "nom": g.nom, "couleur": g.couleur}
+            for g in sorted(trace.tags, key=lambda g: g.nom.lower())
+        ],
+        "profil": allege,
+    }
+@app.get("/categories")
+def liste_categories():
+    return [
+        {"id": cid, "nom": c["nom"], "icone": c["icone"]}
+        for cid, c in CATEGORIES.items()
+    ]
+
+
+@app.put("/waypoints/{waypoint_id}")
+def maj_waypoint(waypoint_id: int, donnees: WaypointMaj, db: Session = Depends(get_db)):
+    if donnees.categorie not in CATEGORIES:
+        raise HTTPException(status_code=400, detail="Catégorie inconnue.")
+    waypoint = db.get(Waypoint, waypoint_id)
+    if not waypoint:
+        raise HTTPException(status_code=404, detail="Waypoint introuvable.")
+    waypoint.categorie = donnees.categorie
+    db.commit()
+    return {"id": waypoint.id, "categorie": waypoint.categorie}
 
 # ---------- Frontend (toujours en dernier) ----------
 

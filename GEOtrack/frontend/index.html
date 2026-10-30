@@ -30,6 +30,26 @@
     }
     .editeur-tags { margin-top: 6px; padding: 6px; background: #f8fafc; border-radius: 6px; }
     .editeur-tags label { display: block; }
+      #fiche {
+      display: none; position: fixed; left: 340px; right: 0; bottom: 0; z-index: 2;
+      box-sizing: border-box; padding: 8px 12px; background: white;
+      border-top: 1px solid #ccc; box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.15);
+    }
+    #fiche.ouverte { display: block; }
+    #fiche-entete { display: flex; justify-content: space-between; gap: 12px; }
+    #fiche-stats, #profil-info { color: #555; font-size: 12px; }
+    #profil-info { min-height: 16px; margin-top: 4px; }
+    .curseur {
+      width: 14px; height: 14px; border-radius: 50%;
+      background: #1d3557; border: 2px solid white; box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+    }
+    #filtre-categories label { display: block; }
+    #fonds {
+      position: fixed; top: 10px; right: 10px; z-index: 2;
+      background: white; padding: 6px 10px; border-radius: 6px;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    }
+    #fonds label { display: block; cursor: pointer; }
   </style>
 </head>
 <body>
@@ -53,6 +73,8 @@
       <div class="ligne"><label><input type="checkbox" id="zone-visible"> Limiter à la zone visible</label></div>
       <div>Tags (au moins un) :</div>
       <div id="filtre-tags"></div>
+      <div>Waypoints (au moins une catégorie) :</div>
+      <div id="filtre-categories"></div>
       <button id="reinitialiser" type="button">Réinitialiser</button>
     </fieldset>
 
@@ -69,6 +91,27 @@
     <ul id="liste"></ul>
   </div>
   <div id="map"></div>
+    <div id="fonds">
+      <label><input type="radio" name="fond" value="osm" checked> Plan</label>
+      <label><input type="radio" name="fond" value="planign"> Plan IGN (France)</label>
+      <label><input type="radio" name="fond" value="ign"> Satellite IGN (France)</label>
+      <label><input type="radio" name="fond" value="esri"> Satellite Esri (monde)</label>
+    </div>
+    <div id="fiche">
+    <div id="fiche-entete">
+      <div>
+        <strong id="fiche-titre"></strong>
+        <div id="fiche-stats"></div>
+        <div id="fiche-tags"></div>
+      </div>
+      <button id="fiche-fermer" type="button" title="Fermer">×</button>
+    </div>
+    <div id="profil-info"></div>
+    <div id="profil"></div>
+  </div>
   <script src="app.js"></script>
+  <script src="fiche.js"></script>
+  <script src="waypoints.js"></script>
+  <script src="fonds.js"></script>
 </body>
 </html>

@@ -69,5 +69,7 @@ class Waypoint(Base):
     lat: Mapped[float]
     lon: Mapped[float]
     altitude: Mapped[Optional[float]]
+    symbole: Mapped[Optional[str]]    # symbole GPX d'origine (<sym>)
+    categorie: Mapped[Optional[str]]  # choix d'icône, pour l'étape suivante
 
     fichier: Mapped["Fichier"] = relationship(back_populates="waypoints")

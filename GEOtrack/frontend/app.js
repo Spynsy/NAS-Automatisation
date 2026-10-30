@@ -1,16 +1,55 @@
 ﻿const map = new maplibregl.Map({
   container: "map",
-  style: {
+    style: {
     version: 8,
     sources: {
       osm: {
         type: "raster",
         tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
         tileSize: 256,
+        maxzoom: 19,
         attribution: "© OpenStreetMap contributors",
       },
+
+      planign: {
+        type: "raster",
+        tiles: [
+          "https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0" +
+            "&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&FORMAT=image/png" +
+            "&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}",
+        ],
+        tileSize: 256,
+        maxzoom: 18,
+        attribution: "© IGN – Géoplateforme",
+      },
+
+      ign: {
+        type: "raster",
+        tiles: [
+          "https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0" +
+            "&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&FORMAT=image/jpeg" +
+            "&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}",
+        ],
+        tileSize: 256,
+        maxzoom: 19,
+        attribution: "© IGN – Géoplateforme (Licence ouverte Etalab 2.0)",
+      },
+      esri: {
+        type: "raster",
+        tiles: [
+          "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        ],
+        tileSize: 256,
+        maxzoom: 19,
+        attribution: "Imagerie © Esri, Maxar, Earthstar Geographics",
+      },
     },
-    layers: [{ id: "osm", type: "raster", source: "osm" }],
+    layers: [
+      { id: "fond-osm", type: "raster", source: "osm" },
+      { id: "fond-planign", type: "raster", source: "planign", layout: { visibility: "none" } },
+      { id: "fond-ign", type: "raster", source: "ign", layout: { visibility: "none" } },
+      { id: "fond-esri", type: "raster", source: "esri", layout: { visibility: "none" } },
+    ],
   },
   center: [2.35, 46.8],
   zoom: 5,
@@ -63,6 +102,9 @@ function construireParametres() {
   ajouter("date_fin", "date-fin");
 
   idsCoches().forEach((id) => params.append("tags", id));
+  document
+    .querySelectorAll("#filtre-categories input:checked")
+    .forEach((c) => params.append("categories", c.value));
 
   if (document.getElementById("zone-visible").checked) {
     const b = map.getBounds();
@@ -193,9 +235,12 @@ function afficherListe(geojson) {
     if (traceEnEdition === p.id) li.append(creerEditeurTags(p));
 
     li.addEventListener("click", () => {
-      map.fitBounds(englober([f]), { padding: 60 });
+      map.fitBounds(englober([f]), {
+        padding: { top: 60, left: 60, right: 60, bottom: 280 }, // laisse la place à la fiche
+      });
+      ouvrirFiche(p.id);
     });
-    liste.append(li);
+    liste.append(li)
   });
 }
 
@@ -211,6 +256,8 @@ async function chargerDonnees(ajuster = false) {
 }
 
 map.on("load", async () => {
+  await chargerCategories(); // enregistre les icônes avant de s'en servir
+
   map.addSource("gpx", {
     type: "geojson",
     data: { type: "FeatureCollection", features: [] },
@@ -222,24 +269,13 @@ map.on("load", async () => {
     source: "gpx",
     filter: ["==", "$type", "LineString"],
     paint: {
-      // couleur du premier tag, ou rouge par défaut
       "line-color": ["coalesce", ["get", "couleur"], "#e63946"],
       "line-width": 3,
     },
   });
 
-  map.addLayer({
-    id: "waypoints",
-    type: "circle",
-    source: "gpx",
-    filter: ["==", "$type", "Point"],
-    paint: {
-      "circle-radius": 6,
-      "circle-color": "#1d3557",
-      "circle-stroke-color": "#ffffff",
-      "circle-stroke-width": 2,
-    },
-  });
+  ajouterCoucheWaypoints();
+  ajouterCoucheSelection();
 
   await chargerTags();
   await chargerDonnees(true);
