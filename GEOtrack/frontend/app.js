@@ -162,7 +162,7 @@ async function chargerTags() {
   });
 }
 
-function creerEditeurTags(p) {
+function creerEditeurTags(p, apres) {
   const conteneur = document.createElement("div");
   conteneur.className = "editeur-tags";
   conteneur.addEventListener("click", (e) => e.stopPropagation());
@@ -191,6 +191,7 @@ function creerEditeurTags(p) {
       });
       await chargerTags();        // met à jour les compteurs
       await chargerDonnees(false);
+      if (apres) await apres();   // prévient l'appelant (la fiche, le cas échéant)
     });
 
     etiquette.append(caseACocher, creerPastille(tag));

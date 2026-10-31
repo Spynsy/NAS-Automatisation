@@ -50,6 +50,17 @@
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
     }
     #fonds label { display: block; cursor: pointer; }
+    #fiche-actions { position: relative; display: flex; gap: 6px; align-items: flex-start; }
+    #fiche-editeur {
+      display: none; position: absolute; top: 100%; right: 0; margin-top: 4px; z-index: 3;
+      min-width: 200px; max-height: 220px; overflow-y: auto;
+      background: white; border: 1px solid #ccc; border-radius: 6px;
+      padding: 8px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    }
+    #fiche-editeur.ouvert { display: block; }
+    #fiche-ligne-titre { display: flex; align-items: center; gap: 6px; }
+    #fiche-titre input { font: inherit; width: 280px; }
+    #fiche-supprimer:hover { background: #fee2e2; }
   </style>
 </head>
 <body>
@@ -100,11 +111,19 @@
     <div id="fiche">
     <div id="fiche-entete">
       <div>
-        <strong id="fiche-titre"></strong>
+        <div id="fiche-ligne-titre">
+          <strong id="fiche-titre"></strong>
+          <button id="fiche-renommer" type="button" title="Renommer">✏️</button>
+        </div>
         <div id="fiche-stats"></div>
         <div id="fiche-tags"></div>
       </div>
-      <button id="fiche-fermer" type="button" title="Fermer">×</button>
+      <div id="fiche-actions">
+        <button id="fiche-tags-bouton" type="button">🏷 Tags</button>
+        <button id="fiche-supprimer" type="button" title="Supprimer cette activité">🗑</button>
+        <button id="fiche-fermer" type="button" title="Fermer">×</button>
+        <div id="fiche-editeur"></div>
+      </div>
     </div>
     <div id="profil-info"></div>
     <div id="profil"></div>

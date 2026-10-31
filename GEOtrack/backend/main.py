@@ -33,6 +33,9 @@ class TagsTrace(BaseModel):
 class WaypointMaj(BaseModel):
     categorie: str
 
+class TraceMaj(BaseModel):
+    nom: str = Field(min_length=1, max_length=200)
+
 # --- Clean the DATA ---
 
 ALTITUDE_MIN, ALTITUDE_MAX = -500, 9000  # en mètres : hors de cette plage, la valeur est aberrante
@@ -320,6 +323,42 @@ def detail_trace(trace_id: int, db: Session = Depends(get_db)):
         ],
         "profil": allege,
     }
+@app.patch("/traces/{trace_id}")
+def renommer_trace(trace_id: int, donnees: TraceMaj, db: Session = Depends(get_db)):
+    nom = donnees.nom.strip()
+    if not nom:
+        raise HTTPException(status_code=400, detail="Le nom ne peut pas être vide.")
+    trace = db.get(Trace, trace_id)
+    if not trace:
+        raise HTTPException(status_code=404, detail="Trace introuvable.")
+    trace.nom = nom
+    db.commit()
+    return {"id": trace.id, "nom": trace.nom}
+
+
+@app.delete("/traces/{trace_id}", status_code=204)
+def supprimer_trace(trace_id: int, db: Session = Depends(get_db)):
+    trace = db.get(Trace, trace_id)
+    if not trace:
+        raise HTTPException(status_code=404, detail="Trace introuvable.")
+
+    fichier = trace.fichier
+    db.delete(trace)  # supprime aussi ses liens avec les tags
+    db.flush()        # applique la suppression avant de compter ce qui reste
+
+    # Si le fichier d'origine ne contient plus rien, on l'oublie aussi
+    # (cela permet de le réimporter plus tard)
+    reste_traces = db.scalar(
+        select(func.count()).select_from(Trace).where(Trace.fichier_id == fichier.id)
+    )
+    reste_waypoints = db.scalar(
+        select(func.count()).select_from(Waypoint).where(Waypoint.fichier_id == fichier.id)
+    )
+    if not reste_traces and not reste_waypoints:
+        db.delete(fichier)
+
+    db.commit()
+    
 @app.get("/categories")
 def liste_categories():
     return [
