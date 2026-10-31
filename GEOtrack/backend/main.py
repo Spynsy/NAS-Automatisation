@@ -33,6 +33,25 @@ class TagsTrace(BaseModel):
 class WaypointMaj(BaseModel):
     categorie: str
 
+# --- Clean the DATA ---
+
+ALTITUDE_MIN, ALTITUDE_MAX = -500, 9000  # en mètres : hors de cette plage, la valeur est aberrante
+
+
+def nettoyer_altitudes(gpx):
+    """Efface les altitudes aberrantes avant tout calcul."""
+    points = [p for t in gpx.tracks for s in t.segments for p in s.points]
+    points += gpx.waypoints
+    for p in points:
+        if p.elevation is not None and not (ALTITUDE_MIN <= p.elevation <= ALTITUDE_MAX):
+            p.elevation = None
+
+
+def entier_sur(valeur, maximum=10**9):
+    """Entier arrondi, ou None si la valeur est absente ou démesurée."""
+    if valeur is None or not (0 <= valeur <= maximum):
+        return None
+    return round(valeur)
 
 # ---------- Import ----------
 
@@ -43,11 +62,15 @@ async def importer(fichier: UploadFile = File(...), db: Session = Depends(get_db
 
     if db.scalar(select(Fichier).where(Fichier.sha256 == empreinte)):
         raise HTTPException(status_code=409, detail="Ce fichier a déjà été importé.")
-
+        
+    
+    
     try:
         gpx = gpxpy.parse(contenu.decode("utf-8"))
     except (gpxpy.gpx.GPXException, UnicodeDecodeError):
         raise HTTPException(status_code=400, detail="Fichier GPX invalide.")
+
+    nettoyer_altitudes(gpx)
 
     entree = Fichier(nom=fichier.filename, sha256=empreinte)
     db.add(entree)
@@ -76,9 +99,9 @@ async def importer(fichier: UploadFile = File(...), db: Session = Depends(get_db
             Trace(
                 nom=t.name,
                 distance_km=round(t.length_3d() / 1000, 2),
-                d_plus=round(montee),
-                d_moins=round(descente),
-                duree_s=round(duree) if duree else None,
+                d_plus=entier_sur(montee) or 0,
+                d_moins=entier_sur(descente) or 0,
+                duree_s=entier_sur(duree) or None,
                 debut=debut,
                 lat_min=bornes.min_latitude,
                 lat_max=bornes.max_latitude,
