@@ -8,7 +8,7 @@ This repository is created to stock and compile all the processus developped to 
 - Menu_App : A desktop launcher with illustrated cards for the available tools.
 - Download_videos : A project which summarize and download videos selected from youtubers followed.
 - Liste_course : A recipe workbook and shopping-list project.
-- GEOtrack : A worldmap with waypoints, activities and tracks.
+- GEOtrack : A world map with waypoints, activities and tracks.
 
 
 Run `Menu_App/Menu_app.py` with Python to open the launcher.
