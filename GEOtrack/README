@@ -1,0 +1,15 @@
+# GEOtrack :
+
+## Description of the application :
+
+This application creates a world map for navigating between waypoints, activities and tracks. 
+
+You can search using different criteria such as the type of activities, the name, the date...
+
+The development is divided into two parts : The frontend and the backend.
+
+## The Frontend :
+The frontend provides the user interface and handles the visual and interactive aspects of the application using JavaScript and HTML.
+
+## The Backend :
+The backend handles the application's logic, functions, and algorithms.
