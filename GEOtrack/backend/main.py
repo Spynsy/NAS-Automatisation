@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from database import Base, engine, get_db
 from categories import CATEGORIES, deviner_categorie
-from models import Fichier, Tag, Trace, Waypoint, traces_tags
+from models import Fichier, Tag, Trace, Waypoint, traces_tags, waypoints_tags
 from gpxpy.geo import haversine_distance
 
 Base.metadata.create_all(engine)  # crée les tables manquantes (dont tags)
@@ -36,6 +36,10 @@ class WaypointMaj(BaseModel):
 class TraceMaj(BaseModel):
     nom: str = Field(min_length=1, max_length=200)
 
+class TagMaj(BaseModel):
+    nom: Optional[str] = Field(default=None, min_length=1, max_length=50)
+    couleur: Optional[str] = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    
 # --- Clean the DATA ---
 
 ALTITUDE_MIN, ALTITUDE_MAX = -500, 9000  # en mètres : hors de cette plage, la valeur est aberrante
@@ -175,7 +179,7 @@ def liste_tracks(
         # garde les traces qui portent AU MOINS UN des tags cochés
         requete = requete.where(Trace.tags.any(Tag.id.in_(tags)))
 
-    requete_w = select(Waypoint)
+    requete_w = select(Waypoint).options(selectinload(Waypoint.tags))
     if q:
         requete_w = requete_w.where(Waypoint.nom.ilike(f"%{q}%"))
     if bbox:
@@ -184,6 +188,8 @@ def liste_tracks(
             Waypoint.lat.between(lat_min, lat_max),
         )
     if categories:
+        if tags:
+            requete_w = requete_w.where(Waypoint.tags.any(Tag.id.in_(tags)))
         condition = Waypoint.categorie.in_(categories)
         if "autre" in categories:  # "autre" inclut les waypoints sans catégorie
             condition = or_(condition, Waypoint.categorie.is_(None))
@@ -192,8 +198,7 @@ def liste_tracks(
     features = []
 
     # Les waypoints n'ont pas (encore) de tags : on les masque si on filtre par tag
-    waypoints = [] if tags else db.scalars(requete_w)
-    for w in waypoints:
+    for w in db.scalars(requete_w):
         features.append({
             "type": "Feature",
             "geometry": {"type": "Point", "coordinates": [w.lon, w.lat]},
@@ -203,8 +208,12 @@ def liste_tracks(
                 "name": w.nom,
                 "altitude": w.altitude,
                 "categorie": w.categorie or "autre",
-            },
-        })
+                "tags": [
+                    {"id": g.id, "nom": g.nom, "couleur": g.couleur}
+                    for g in sorted(w.tags, key=lambda g: g.nom.lower())
+            ],
+        },
+    })
 
     for t in db.scalars(requete):
         tags_tries = sorted(t.tags, key=lambda g: g.nom.lower())
@@ -234,17 +243,28 @@ def liste_tracks(
 
 @app.get("/tags")
 def liste_tags(db: Session = Depends(get_db)):
+    # sous-requêtes "corrélées" : une par tag, pour compter ses tracés et ses waypoints
+    nb_traces = (
+        select(func.count()).select_from(traces_tags)
+        .where(traces_tags.c.tag_id == Tag.id).scalar_subquery()
+    )
+    nb_waypoints = (
+        select(func.count()).select_from(waypoints_tags)
+        .where(waypoints_tags.c.tag_id == Tag.id).scalar_subquery()
+    )
     lignes = db.execute(
-        select(Tag, func.count(traces_tags.c.trace_id))
-        .outerjoin(traces_tags, Tag.id == traces_tags.c.tag_id)
-        .group_by(Tag.id)
-        .order_by(func.lower(Tag.nom))
+        select(Tag, nb_traces, nb_waypoints).order_by(func.lower(Tag.nom))
     )
     return [
-        {"id": tag.id, "nom": tag.nom, "couleur": tag.couleur, "nb_traces": nb}
-        for tag, nb in lignes
+        {
+            "id": tag.id,
+            "nom": tag.nom,
+            "couleur": tag.couleur,
+            "nb_traces": nt,
+            "nb_waypoints": nw,
+        }
+        for tag, nt, nw in lignes
     ]
-
 
 @app.post("/tags", status_code=201)
 def creer_tag(donnees: TagEntree, db: Session = Depends(get_db)):
@@ -267,6 +287,8 @@ def supprimer_tag(tag_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Tag introuvable.")
     # d'abord les liens avec les traces, puis le tag lui-même
     db.execute(delete(traces_tags).where(traces_tags.c.tag_id == tag_id))
+    db.execute(delete(traces_tags).where(traces_tags.c.tag_id == tag_id))
+    db.execute(delete(waypoints_tags).where(waypoints_tags.c.tag_id == tag_id))
     db.delete(tag)
     db.commit()
 
@@ -377,6 +399,41 @@ def maj_waypoint(waypoint_id: int, donnees: WaypointMaj, db: Session = Depends(g
     waypoint.categorie = donnees.categorie
     db.commit()
     return {"id": waypoint.id, "categorie": waypoint.categorie}
+
+@app.patch("/tags/{tag_id}")
+def modifier_tag(tag_id: int, donnees: TagMaj, db: Session = Depends(get_db)):
+    tag = db.get(Tag, tag_id)
+    if not tag:
+        raise HTTPException(status_code=404, detail="Tag introuvable.")
+
+    if donnees.nom is not None:
+        nom = donnees.nom.strip()
+        if not nom:
+            raise HTTPException(status_code=400, detail="Le nom du tag est vide.")
+        doublon = db.scalar(
+            select(Tag).where(func.lower(Tag.nom) == nom.lower(), Tag.id != tag_id)
+        )
+        if doublon:
+            raise HTTPException(status_code=409, detail="Ce tag existe déjà.")
+        tag.nom = nom
+
+    if donnees.couleur is not None:
+        tag.couleur = donnees.couleur
+
+    db.commit()
+    return {"id": tag.id, "nom": tag.nom, "couleur": tag.couleur}
+
+
+@app.put("/waypoints/{waypoint_id}/tags")
+def definir_tags_waypoint(
+    waypoint_id: int, donnees: TagsTrace, db: Session = Depends(get_db)
+):
+    waypoint = db.get(Waypoint, waypoint_id)
+    if not waypoint:
+        raise HTTPException(status_code=404, detail="Waypoint introuvable.")
+    waypoint.tags = list(db.scalars(select(Tag).where(Tag.id.in_(donnees.tag_ids))))
+    db.commit()
+    return {"id": waypoint.id, "tags": [g.id for g in waypoint.tags]}
 
 # ---------- Frontend (toujours en dernier) ----------
 

@@ -63,7 +63,12 @@ function ajouterCoucheWaypoints() {
 }
 
 function ouvrirPopupWaypoint(f) {
-  const p = f.properties;
+  // On reprend les données d'origine du serveur : quand on interroge la carte,
+  // MapLibre transforme les listes (comme "tags") en texte.
+  const original = dernierGeojson.features.find(
+    (x) => x.properties.type === "waypoint" && x.properties.id === f.properties.id
+  );
+  const p = original ? original.properties : f.properties;
 
   const conteneur = document.createElement("div");
   const titre = document.createElement("strong");
@@ -94,6 +99,15 @@ function ouvrirPopupWaypoint(f) {
     await chargerDonnees(false); // l'icône change sur la carte
   });
   conteneur.append(selecteur);
+
+  // Les mêmes cases à cocher que pour un tracé, mais envoyées vers /waypoints/...
+  const titreTags = document.createElement("div");
+  titreTags.textContent = "Tags :";
+  titreTags.style.marginTop = "8px";
+  const editeur = creerEditeurTags({ id: p.id, tags: p.tags || [] }, null, "waypoints");
+  editeur.style.maxHeight = "150px";
+  editeur.style.overflowY = "auto";
+  conteneur.append(titreTags, editeur);
 
   new maplibregl.Popup({ offset: 20 })
     .setLngLat(f.geometry.coordinates.slice())

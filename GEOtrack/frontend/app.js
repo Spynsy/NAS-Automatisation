@@ -144,7 +144,11 @@ async function chargerTags() {
     caseACocher.type = "checkbox";
     caseACocher.value = tag.id;
     caseACocher.checked = coches.has(tag.id);
-    etiquette.append(caseACocher, creerPastille(tag), ` (${tag.nb_traces})`);
+    etiquette.append(
+      caseACocher,
+      creerPastille(tag),
+      ` (${tag.nb_traces} tracés, ${tag.nb_waypoints} points)`
+    );
 
     const supprimer = document.createElement("button");
     supprimer.type = "button";
@@ -157,12 +161,19 @@ async function chargerTags() {
       await chargerDonnees(false);
     });
 
+    const modifier = document.createElement("button");
+    modifier.type = "button";
+    modifier.textContent = "✏️";
+    modifier.title = "Modifier le nom ou la couleur";
+    modifier.addEventListener("click", () => ouvrirEditionTag(tag, ligne));
+
+    ligne.append(etiquette, modifier, supprimer);
     ligne.append(etiquette, supprimer);
     conteneur.append(ligne);
   });
 }
 
-function creerEditeurTags(p, apres) {
+function creerEditeurTags(p, apres, ressource = "traces") {
   const conteneur = document.createElement("div");
   conteneur.className = "editeur-tags";
   conteneur.addEventListener("click", (e) => e.stopPropagation());
@@ -184,7 +195,7 @@ function creerEditeurTags(p, apres) {
       if (caseACocher.checked) idsActuels.add(tag.id);
       else idsActuels.delete(tag.id);
 
-      await fetch(`/traces/${p.id}/tags`, {
+        await fetch(`/${ressource}/${p.id}/tags`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tag_ids: [...idsActuels] }),

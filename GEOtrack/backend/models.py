@@ -14,6 +14,12 @@ traces_tags = Table(
     Column("tag_id", ForeignKey("tags.id"), primary_key=True),
 )
 
+waypoints_tags = Table(
+    "waypoints_tags",
+    Base.metadata,
+    Column("waypoint_id", ForeignKey("waypoints.id"), primary_key=True),
+    Column("tag_id", ForeignKey("tags.id"), primary_key=True),
+)
 
 class Fichier(Base):
     __tablename__ = "fichiers"
@@ -71,5 +77,6 @@ class Waypoint(Base):
     altitude: Mapped[Optional[float]]
     symbole: Mapped[Optional[str]]    # symbole GPX d'origine (<sym>)
     categorie: Mapped[Optional[str]]  # choix d'icône, pour l'étape suivante
+    tags: Mapped[list["Tag"]] = relationship(secondary=waypoints_tags)
 
     fichier: Mapped["Fichier"] = relationship(back_populates="waypoints")
