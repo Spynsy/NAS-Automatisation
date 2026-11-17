@@ -62,6 +62,17 @@
     #fiche-titre input { font: inherit; width: 280px; }
     #fiche-supprimer:hover { background: #fee2e2; }
     .edition-tag input[type="text"] { flex: 1; min-width: 0; }
+
+    #nouvelle-famille { flex: 1; min-width: 0; }
+    #famille-cible { width: 100%; }
+
+    .etiquette-famille { display: inline-block; margin: 2px 8px 2px 0; font-size: 12px; }
+    .carre-famille {
+      display: inline-block; width: 11px; height: 11px; margin-right: 5px;
+      border-radius: 2px; vertical-align: middle;
+    }
+    .rond-tag { border-radius: 50%; }
+
   </style>
 </head>
 <body>
@@ -99,6 +110,26 @@
       </div>
     </fieldset>
 
+    <fieldset id="bloc-familles">
+      <legend>Familles</legend>
+      <div id="filtre-familles"></div>
+      <div class="ligne">
+        <input type="text" id="nouvelle-famille" placeholder="Nouvelle famille (ex. GR20)">
+        <input type="color" id="couleur-famille" value="#457b9d">
+        <button id="ajouter-famille" type="button">Ajouter</button>
+      </div>
+      <div>Éléments actuellement affichés :</div>
+      <div class="ligne">
+        <label><input type="checkbox" id="op-traces" checked> tracés</label>
+        <label><input type="checkbox" id="op-points" checked> points</label>
+      </div>
+      <div class="ligne"><select id="famille-cible"></select></div>
+      <div class="ligne">
+        <button id="familles-ajouter" type="button">Ajouter à la famille</button>
+        <button id="familles-retirer" type="button">Retirer</button>
+      </div>
+    </fieldset>
+
     <h3 id="compteur"></h3>
     <ul id="liste"></ul>
   </div>
@@ -109,7 +140,7 @@
       <label><input type="radio" name="fond" value="ign"> Satellite IGN (France)</label>
       <label><input type="radio" name="fond" value="esri"> Satellite Esri (monde)</label>
     </div>
-    <div id="fiche">
+      <div id="fiche">
     <div id="fiche-entete">
       <div>
         <div id="fiche-ligne-titre">
@@ -118,8 +149,10 @@
         </div>
         <div id="fiche-stats"></div>
         <div id="fiche-tags"></div>
+        <div id="fiche-familles"></div>
       </div>
       <div id="fiche-actions">
+        <button id="fiche-familles-bouton" type="button">📁 Familles</button>
         <button id="fiche-tags-bouton" type="button">🏷 Tags</button>
         <button id="fiche-supprimer" type="button" title="Supprimer cette activité">🗑</button>
         <button id="fiche-fermer" type="button" title="Fermer">×</button>
@@ -134,5 +167,6 @@
   <script src="waypoints.js"></script>
   <script src="fonds.js"></script>
   <script src="tags.js"></script>
+  <script src="familles.js"></script>
 </body>
 </html>

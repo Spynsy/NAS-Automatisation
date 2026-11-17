@@ -5,7 +5,8 @@ elementCurseur.className = "curseur";
 const curseur = new maplibregl.Marker({ element: elementCurseur });
 let curseurAffiche = false;
 
-let traceFiche = null; // données de l'activité actuellement affichée dans la fiche
+let traceFiche = null;    // données de l'activité actuellement affichée dans la fiche
+let editeurOuvert = null; // "tags", "familles" ou null
 
 const filtreSelection = (id) => [
   "all",
@@ -45,7 +46,7 @@ async function chargerFiche(id) {
   return reponse.json();
 }
 
-// Remplit la fiche (titre, statistiques, tags, profil) à partir d'une activité
+// Remplit la fiche (titre, statistiques, tags, familles, profil)
 function remplirFiche(trace) {
   const date = trace.debut
     ? new Date(trace.debut).toLocaleDateString("fr-FR")
@@ -64,9 +65,13 @@ function remplirFiche(trace) {
 
   const zoneTags = document.getElementById("fiche-tags");
   zoneTags.innerHTML = "";
-  trace.tags.forEach((t) => zoneTags.append(creerPastille(t))); // fonction de app.js
+  (trace.tags || []).forEach((t) => zoneTags.append(creerPastille(t)));
 
-  const couleur = trace.tags.length ? trace.tags[0].couleur : "#e63946";
+  const zoneFamilles = document.getElementById("fiche-familles");
+  zoneFamilles.innerHTML = "";
+  (trace.familles || []).forEach((f) => zoneFamilles.append(creerPastilleFamille(f)));
+
+  const couleur = trace.tags && trace.tags.length ? trace.tags[0].couleur : "#e63946";
   dessinerProfil(trace.profil, couleur);
 }
 
@@ -89,9 +94,10 @@ function fermerFiche() {
   traceFiche = null;
 }
 
-// ---------- Sélecteur de tags dans la fiche ----------
+// ---------- Listes déroulantes de tags et de familles ----------
 
 function fermerEditeurTags() {
+  editeurOuvert = null;
   document.getElementById("fiche-editeur").classList.remove("ouvert");
 }
 
@@ -104,17 +110,22 @@ async function apresChangementTags() {
   remplirFiche(trace);
 }
 
-function basculerEditeurTags() {
+function basculerEditeur(type) {
   if (!traceFiche) return;
-  const editeur = document.getElementById("fiche-editeur");
-
-  if (editeur.classList.contains("ouvert")) {
+  if (editeurOuvert === type) {
     fermerEditeurTags();
     return;
   }
+
+  const editeur = document.getElementById("fiche-editeur");
   editeur.innerHTML = "";
-  editeur.append(creerEditeurTags(traceFiche, apresChangementTags)); // fonction de app.js
+  editeur.append(
+    type === "tags"
+      ? creerEditeurTags(traceFiche, apresChangementTags)                     // app.js
+      : creerEditeurFamilles(traceFiche, apresChangementTags, "traces")       // familles.js
+  );
   editeur.classList.add("ouvert");
+  editeurOuvert = type;
 }
 
 // ---------- Profil altimétrique ----------
@@ -210,21 +221,6 @@ function dessinerProfil(profil, couleur) {
   });
 }
 
-// ---------- Interactions ----------
-
-document.getElementById("fiche-fermer").addEventListener("click", fermerFiche);
-document.getElementById("fiche-tags-bouton").addEventListener("click", basculerEditeurTags);
-
-// Un clic en dehors du bouton et de la liste referme la liste de tags
-document.addEventListener("click", (e) => {
-  if (!e.target.closest("#fiche-actions")) fermerEditeurTags();
-});
-
-// Cliquer sur un tracé de la carte ouvre sa fiche
-map.on("click", "traces", (e) => ouvrirFiche(e.features[0].properties.id));
-map.on("mouseenter", "traces", () => (map.getCanvas().style.cursor = "pointer"));
-map.on("mouseleave", "traces", () => (map.getCanvas().style.cursor = ""));
-
 // ---------- Renommer et supprimer l'activité de la fiche ----------
 
 function demarrerRenommage() {
@@ -296,9 +292,25 @@ async function supprimerTraceFiche() {
 
   fermerFiche();
   if (traceEnEdition === id) traceEnEdition = null; // variable de app.js
-  await chargerTags();       // les compteurs de tags changent
+  await chargerTags();      // les compteurs changent
+  await chargerFamilles();  // familles.js
   await chargerDonnees(false);
 }
 
+// ---------- Interactions ----------
+
+document.getElementById("fiche-fermer").addEventListener("click", fermerFiche);
+document.getElementById("fiche-tags-bouton").addEventListener("click", () => basculerEditeur("tags"));
+document.getElementById("fiche-familles-bouton").addEventListener("click", () => basculerEditeur("familles"));
 document.getElementById("fiche-renommer").addEventListener("click", demarrerRenommage);
 document.getElementById("fiche-supprimer").addEventListener("click", supprimerTraceFiche);
+
+// Un clic en dehors des boutons et de la liste referme la liste déroulante
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("#fiche-actions")) fermerEditeurTags();
+});
+
+// Cliquer sur un tracé de la carte ouvre sa fiche
+map.on("click", "traces", (e) => ouvrirFiche(e.features[0].properties.id));
+map.on("mouseenter", "traces", () => (map.getCanvas().style.cursor = "pointer"));
+map.on("mouseleave", "traces", () => (map.getCanvas().style.cursor = ""));

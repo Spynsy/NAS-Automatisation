@@ -21,6 +21,20 @@ waypoints_tags = Table(
     Column("tag_id", ForeignKey("tags.id"), primary_key=True),
 )
 
+familles_traces = Table(
+    "familles_traces",
+    Base.metadata,
+    Column("famille_id", ForeignKey("familles.id"), primary_key=True),
+    Column("trace_id", ForeignKey("traces.id"), primary_key=True),
+)
+
+familles_waypoints = Table(
+    "familles_waypoints",
+    Base.metadata,
+    Column("famille_id", ForeignKey("familles.id"), primary_key=True),
+    Column("waypoint_id", ForeignKey("waypoints.id"), primary_key=True),
+)
+
 class Fichier(Base):
     __tablename__ = "fichiers"
 
@@ -44,7 +58,13 @@ class Tag(Base):
     nom: Mapped[str] = mapped_column(String(50), unique=True)
     couleur: Mapped[str] = mapped_column(String(7), default="#e63946")
 
+class Famille(Base):
+    __tablename__ = "familles"
 
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nom: Mapped[str] = mapped_column(String(80), unique=True)
+    couleur: Mapped[str] = mapped_column(String(7), default="#457b9d")
+    
 class Trace(Base):
     __tablename__ = "traces"
 
@@ -64,6 +84,7 @@ class Trace(Base):
 
     fichier: Mapped["Fichier"] = relationship(back_populates="traces")
     tags: Mapped[list["Tag"]] = relationship(secondary=traces_tags)
+    familles: Mapped[list["Famille"]] = relationship(secondary=familles_traces)
 
 
 class Waypoint(Base):
@@ -78,5 +99,7 @@ class Waypoint(Base):
     symbole: Mapped[Optional[str]]    # symbole GPX d'origine (<sym>)
     categorie: Mapped[Optional[str]]  # choix d'icône, pour l'étape suivante
     tags: Mapped[list["Tag"]] = relationship(secondary=waypoints_tags)
-
+    familles: Mapped[list["Famille"]] = relationship(secondary=familles_waypoints)
+    
     fichier: Mapped["Fichier"] = relationship(back_populates="waypoints")
+    

@@ -1,6 +1,6 @@
 ﻿const map = new maplibregl.Map({
   container: "map",
-    style: {
+  style: {
     version: 8,
     sources: {
       osm: {
@@ -10,7 +10,6 @@
         maxzoom: 19,
         attribution: "© OpenStreetMap contributors",
       },
-
       planign: {
         type: "raster",
         tiles: [
@@ -22,7 +21,6 @@
         maxzoom: 18,
         attribution: "© IGN – Géoplateforme",
       },
-
       ign: {
         type: "raster",
         tiles: [
@@ -59,7 +57,7 @@
 
 let tagsDisponibles = [];   // liste des tags connus (venue du serveur)
 let dernierGeojson = null;  // dernières données affichées
-let traceEnEdition = null;  // id de l'activité dont l'éditeur de tags est ouvert
+let traceEnEdition = null;  // id de l'activité dont l'éditeur de tags est ouvert (liste)
 
 // ---------- Utilitaires de cadrage ----------
 
@@ -102,9 +100,12 @@ function construireParametres() {
   ajouter("date_fin", "date-fin");
 
   idsCoches().forEach((id) => params.append("tags", id));
+
   document
     .querySelectorAll("#filtre-categories input:checked")
     .forEach((c) => params.append("categories", c.value));
+
+  idsFamillesCochees().forEach((id) => params.append("familles", id)); // familles.js
 
   if (document.getElementById("zone-visible").checked) {
     const b = map.getBounds();
@@ -115,6 +116,7 @@ function construireParametres() {
 
 // ---------- Éléments d'interface pour les tags ----------
 
+// Pastille de tag, utilisée dans la liste d'activités et la fiche
 function creerPastille(tag) {
   const pastille = document.createElement("span");
   pastille.className = "pastille";
@@ -139,16 +141,19 @@ async function chargerTags() {
     const ligne = document.createElement("div");
     ligne.className = "ligne";
 
+    // case à cocher, couleur, nom, nombre de tracés
     const etiquette = document.createElement("label");
     const caseACocher = document.createElement("input");
     caseACocher.type = "checkbox";
     caseACocher.value = tag.id;
     caseACocher.checked = coches.has(tag.id);
-    etiquette.append(
-      caseACocher,
-      creerPastille(tag),
-      ` (${tag.nb_traces} tracés, ${tag.nb_waypoints} points)`
-    );
+    etiquette.append(caseACocher, creerEtiquetteTag(tag), ` (${tag.nb_traces} tracés)`); // tags.js
+
+    const modifier = document.createElement("button");
+    modifier.type = "button";
+    modifier.textContent = "✏️";
+    modifier.title = "Modifier le nom ou la couleur";
+    modifier.addEventListener("click", () => ouvrirEditionTag(tag, ligne)); // tags.js
 
     const supprimer = document.createElement("button");
     supprimer.type = "button";
@@ -159,21 +164,15 @@ async function chargerTags() {
       await fetch(`/tags/${tag.id}`, { method: "DELETE" });
       await chargerTags();
       await chargerDonnees(false);
+      if (traceFiche) await apresChangementTags(); // fiche.js
     });
 
-    const modifier = document.createElement("button");
-    modifier.type = "button";
-    modifier.textContent = "✏️";
-    modifier.title = "Modifier le nom ou la couleur";
-    modifier.addEventListener("click", () => ouvrirEditionTag(tag, ligne));
-
     ligne.append(etiquette, modifier, supprimer);
-    ligne.append(etiquette, supprimer);
     conteneur.append(ligne);
   });
 }
 
-function creerEditeurTags(p, apres, ressource = "traces") {
+function creerEditeurTags(p, apres) {
   const conteneur = document.createElement("div");
   conteneur.className = "editeur-tags";
   conteneur.addEventListener("click", (e) => e.stopPropagation());
@@ -183,7 +182,7 @@ function creerEditeurTags(p, apres, ressource = "traces") {
     return conteneur;
   }
 
-  const idsActuels = new Set(p.tags.map((t) => t.id));
+  const idsActuels = new Set((p.tags || []).map((t) => t.id));
 
   tagsDisponibles.forEach((tag) => {
     const etiquette = document.createElement("label");
@@ -195,7 +194,7 @@ function creerEditeurTags(p, apres, ressource = "traces") {
       if (caseACocher.checked) idsActuels.add(tag.id);
       else idsActuels.delete(tag.id);
 
-        await fetch(`/${ressource}/${p.id}/tags`, {
+      await fetch(`/traces/${p.id}/tags`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tag_ids: [...idsActuels] }),
@@ -218,7 +217,9 @@ function afficherListe(geojson) {
   liste.innerHTML = "";
 
   const traces = geojson.features.filter((f) => f.properties.type === "track");
-  document.getElementById("compteur").textContent = `${traces.length} activité(s)`;
+  const nbPoints = geojson.features.filter((f) => f.properties.type === "waypoint").length;
+  document.getElementById("compteur").textContent =
+    `${traces.length} activité(s) · ${nbPoints} point(s)`;
 
   traces.forEach((f) => {
     const p = f.properties;
@@ -230,8 +231,11 @@ function afficherListe(geojson) {
     const details = document.createElement("div");
     details.textContent = `${p.distance_km} km · D+ ${p.d_plus} m · ${date}`;
 
+    const famillesLigne = document.createElement("div");
+    (p.familles || []).forEach((fam) => famillesLigne.append(creerPastilleFamille(fam)));
+
     const pastilles = document.createElement("div");
-    p.tags.forEach((t) => pastilles.append(creerPastille(t)));
+    (p.tags || []).forEach((t) => pastilles.append(creerPastille(t)));
 
     const bouton = document.createElement("button");
     bouton.type = "button";
@@ -243,7 +247,7 @@ function afficherListe(geojson) {
     });
 
     const li = document.createElement("li");
-    li.append(titre, details, pastilles, bouton);
+    li.append(titre, details, famillesLigne, pastilles, bouton);
     if (traceEnEdition === p.id) li.append(creerEditeurTags(p));
 
     li.addEventListener("click", () => {
@@ -252,7 +256,7 @@ function afficherListe(geojson) {
       });
       ouvrirFiche(p.id);
     });
-    liste.append(li)
+    liste.append(li);
   });
 }
 
@@ -268,7 +272,7 @@ async function chargerDonnees(ajuster = false) {
 }
 
 map.on("load", async () => {
-  await chargerCategories(); // enregistre les icônes avant de s'en servir
+  await chargerCategories(); // enregistre les icônes avant de s'en servir (waypoints.js)
 
   map.addSource("gpx", {
     type: "geojson",
@@ -286,10 +290,11 @@ map.on("load", async () => {
     },
   });
 
-  ajouterCoucheWaypoints();
-  ajouterCoucheSelection();
+  ajouterCoucheWaypoints();  // waypoints.js
+  ajouterCoucheSelection();  // fiche.js
 
   await chargerTags();
+  await chargerFamilles();   // familles.js
   await chargerDonnees(true);
 });
 
@@ -312,6 +317,7 @@ document.getElementById("reinitialiser").addEventListener("click", () => {
     if (champ.type === "checkbox") champ.checked = false;
     else champ.value = "";
   });
+  document.querySelectorAll("#filtre-familles input").forEach((c) => (c.checked = false));
   chargerDonnees(true);
 });
 

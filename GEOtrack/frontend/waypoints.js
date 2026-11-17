@@ -1,5 +1,4 @@
-// JavaScript source code
-// ---------- Waypoints : catégories, icônes et fenêtre d'édition ----------
+ï»¿// ---------- Waypoints : catÃ©gories, icÃ´nes et fenÃªtre d'Ã©dition ----------
 
 let categoriesDisponibles = [];
 
@@ -27,7 +26,7 @@ function creerIcone(emoji) {
   return ctx.getImageData(0, 0, taille, taille);
 }
 
-// Appelée une fois, au chargement de la carte (voir app.js)
+// AppelÃ©e une fois, au chargement de la carte (voir app.js)
 async function chargerCategories() {
   const reponse = await fetch("/categories");
   categoriesDisponibles = await reponse.json();
@@ -55,7 +54,7 @@ function ajouterCoucheWaypoints() {
     source: "gpx",
     filter: ["==", "$type", "Point"],
     layout: {
-      // l'image affichée dépend de la propriété "categorie" de chaque point
+      // l'image affichÃ©e dÃ©pend de la propriÃ©tÃ© "categorie" de chaque point
       "icon-image": ["concat", "icone-", ["get", "categorie"]],
       "icon-allow-overlap": true,
     },
@@ -63,8 +62,8 @@ function ajouterCoucheWaypoints() {
 }
 
 function ouvrirPopupWaypoint(f) {
-  // On reprend les données d'origine du serveur : quand on interroge la carte,
-  // MapLibre transforme les listes (comme "tags") en texte.
+  // On reprend les donnÃ©es d'origine du serveur : quand on interroge la carte,
+  // MapLibre transforme les listes (comme "familles") en texte.
   const original = dernierGeojson.features.find(
     (x) => x.properties.type === "waypoint" && x.properties.id === f.properties.id
   );
@@ -81,6 +80,7 @@ function ouvrirPopupWaypoint(f) {
     conteneur.append(altitude);
   }
 
+  // ----- catÃ©gorie -----
   const selecteur = document.createElement("select");
   categoriesDisponibles.forEach((c) => {
     const option = document.createElement("option");
@@ -96,18 +96,43 @@ function ouvrirPopupWaypoint(f) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ categorie: selecteur.value }),
     });
-    await chargerDonnees(false); // l'icône change sur la carte
+    await chargerDonnees(false); // l'icÃ´ne change sur la carte
   });
   conteneur.append(selecteur);
 
-  // Les mêmes cases à cocher que pour un tracé, mais envoyées vers /waypoints/...
-  const titreTags = document.createElement("div");
-  titreTags.textContent = "Tags :";
-  titreTags.style.marginTop = "8px";
-  const editeur = creerEditeurTags({ id: p.id, tags: p.tags || [] }, null, "waypoints");
-  editeur.style.maxHeight = "150px";
+  // ----- familles : rÃ©sumÃ© + petit bouton qui dÃ©roule la liste Ã  cocher -----
+  const resume = document.createElement("div");
+  resume.style.marginTop = "6px";
+  const afficherResume = (familles) => {
+    resume.replaceChildren();
+    familles.forEach((fam) => resume.append(creerPastilleFamille(fam))); // familles.js
+  };
+  afficherResume(p.familles || []);
+
+  const editeur = creerEditeurFamilles(
+    { id: p.id, familles: p.familles || [] },
+    async () => {
+      // aprÃ¨s chaque case cochÃ©e, on remet Ã  jour le rÃ©sumÃ© avec les donnÃ©es rechargÃ©es
+      const maj = dernierGeojson.features.find(
+        (x) => x.properties.type === "waypoint" && x.properties.id === p.id
+      );
+      if (maj) afficherResume(maj.properties.familles || []);
+    },
+    "waypoints"
+  );
+  editeur.style.display = "none";
+  editeur.style.maxHeight = "120px";
   editeur.style.overflowY = "auto";
-  conteneur.append(titreTags, editeur);
+
+  const bouton = document.createElement("button");
+  bouton.type = "button";
+  bouton.textContent = "ðŸ“ Familles";
+  bouton.style.marginTop = "6px";
+  bouton.addEventListener("click", () => {
+    editeur.style.display = editeur.style.display === "none" ? "block" : "none";
+  });
+
+  conteneur.append(resume, bouton, editeur);
 
   new maplibregl.Popup({ offset: 20 })
     .setLngLat(f.geometry.coordinates.slice())

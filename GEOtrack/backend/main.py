@@ -7,12 +7,15 @@ import gpxpy
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, insert, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from database import Base, engine, get_db
 from categories import CATEGORIES, deviner_categorie
-from models import Fichier, Tag, Trace, Waypoint, traces_tags, waypoints_tags
+from models import (
+    Famille, Fichier, Tag, Trace, Waypoint,
+    familles_traces, familles_waypoints, traces_tags, waypoints_tags,
+)
 from gpxpy.geo import haversine_distance
 
 Base.metadata.create_all(engine)  # crée les tables manquantes (dont tags)
@@ -39,6 +42,24 @@ class TraceMaj(BaseModel):
 class TagMaj(BaseModel):
     nom: Optional[str] = Field(default=None, min_length=1, max_length=50)
     couleur: Optional[str] = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    
+class FamilleEntree(BaseModel):
+    nom: str = Field(min_length=1, max_length=80)
+    couleur: str = Field(default="#457b9d", pattern=r"^#[0-9a-fA-F]{6}$")
+
+
+class FamilleMaj(BaseModel):
+    nom: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    couleur: Optional[str] = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+
+
+class FamillesElement(BaseModel):
+    famille_ids: list[int]
+
+
+class ElementsFamille(BaseModel):
+    trace_ids: list[int] = Field(default_factory=list)
+    waypoint_ids: list[int] = Field(default_factory=list)
     
 # --- Clean the DATA ---
 
@@ -139,8 +160,9 @@ def liste_tracks(
     date_debut: Optional[date] = None,
     date_fin: Optional[date] = None,
     bbox: Optional[str] = None,  # "ouest,sud,est,nord"
-    tags: list[int] = Query(default=[]),  # ?tags=1&tags=3
+    tags: list[int] = Query(default=[]),        # ?tags=1&tags=3
     categories: list[str] = Query(default=[]),  # ?categories=camping&categories=eau
+    familles: list[int] = Query(default=[]),    # ?familles=1&familles=2
     db: Session = Depends(get_db),
 ):
     lon_min = lat_min = lon_max = lat_max = None
@@ -150,10 +172,10 @@ def liste_tracks(
         except ValueError:
             raise HTTPException(status_code=400, detail="bbox invalide")
 
-    # selectinload : charge les tags de toutes les traces en une seule requête
+    # ---------- Tracés ----------
     requete = (
         select(Trace)
-        .options(selectinload(Trace.tags))
+        .options(selectinload(Trace.tags), selectinload(Trace.familles))
         .order_by(Trace.debut.desc())
     )
     if q:
@@ -178,8 +200,12 @@ def liste_tracks(
     if tags:
         # garde les traces qui portent AU MOINS UN des tags cochés
         requete = requete.where(Trace.tags.any(Tag.id.in_(tags)))
+    if familles:
+        # garde les traces qui appartiennent à AU MOINS UNE des familles cochées
+        requete = requete.where(Trace.familles.any(Famille.id.in_(familles)))
 
-    requete_w = select(Waypoint).options(selectinload(Waypoint.tags))
+    # ---------- Waypoints ----------
+    requete_w = select(Waypoint).options(selectinload(Waypoint.familles))
     if q:
         requete_w = requete_w.where(Waypoint.nom.ilike(f"%{q}%"))
     if bbox:
@@ -188,17 +214,18 @@ def liste_tracks(
             Waypoint.lat.between(lat_min, lat_max),
         )
     if categories:
-        if tags:
-            requete_w = requete_w.where(Waypoint.tags.any(Tag.id.in_(tags)))
         condition = Waypoint.categorie.in_(categories)
         if "autre" in categories:  # "autre" inclut les waypoints sans catégorie
             condition = or_(condition, Waypoint.categorie.is_(None))
         requete_w = requete_w.where(condition)
+    if familles:
+        requete_w = requete_w.where(Waypoint.familles.any(Famille.id.in_(familles)))
 
     features = []
 
-    # Les waypoints n'ont pas (encore) de tags : on les masque si on filtre par tag
-    for w in db.scalars(requete_w):
+    # Les tags ne concernent que les tracés : on masque les waypoints si on filtre par tag
+    waypoints = [] if tags else db.scalars(requete_w)
+    for w in waypoints:
         features.append({
             "type": "Feature",
             "geometry": {"type": "Point", "coordinates": [w.lon, w.lat]},
@@ -208,12 +235,12 @@ def liste_tracks(
                 "name": w.nom,
                 "altitude": w.altitude,
                 "categorie": w.categorie or "autre",
-                "tags": [
-                    {"id": g.id, "nom": g.nom, "couleur": g.couleur}
-                    for g in sorted(w.tags, key=lambda g: g.nom.lower())
-            ],
-        },
-    })
+                "familles": [
+                    {"id": f.id, "nom": f.nom, "couleur": f.couleur}
+                    for f in sorted(w.familles, key=lambda f: f.nom.lower())
+                ],
+            },
+        })
 
     for t in db.scalars(requete):
         tags_tries = sorted(t.tags, key=lambda g: g.nom.lower())
@@ -233,6 +260,10 @@ def liste_tracks(
                     {"id": g.id, "nom": g.nom, "couleur": g.couleur} for g in tags_tries
                 ],
                 "couleur": tags_tries[0].couleur if tags_tries else None,
+                "familles": [
+                    {"id": f.id, "nom": f.nom, "couleur": f.couleur}
+                    for f in sorted(t.familles, key=lambda f: f.nom.lower())
+                ],
             },
         })
 
@@ -343,6 +374,10 @@ def detail_trace(trace_id: int, db: Session = Depends(get_db)):
             {"id": g.id, "nom": g.nom, "couleur": g.couleur}
             for g in sorted(trace.tags, key=lambda g: g.nom.lower())
         ],
+        "familles": [
+            {"id": f.id, "nom": f.nom, "couleur": f.couleur}
+            for f in sorted(trace.familles, key=lambda f: f.nom.lower())
+        ],
         "profil": allege,
     }
 @app.patch("/traces/{trace_id}")
@@ -435,7 +470,156 @@ def definir_tags_waypoint(
     db.commit()
     return {"id": waypoint.id, "tags": [g.id for g in waypoint.tags]}
 
+# ---------- Familles ----------
+
+@app.get("/familles")
+def liste_familles(db: Session = Depends(get_db)):
+    nb_traces = (
+        select(func.count()).select_from(familles_traces)
+        .where(familles_traces.c.famille_id == Famille.id).scalar_subquery()
+    )
+    nb_waypoints = (
+        select(func.count()).select_from(familles_waypoints)
+        .where(familles_waypoints.c.famille_id == Famille.id).scalar_subquery()
+    )
+    lignes = db.execute(
+        select(Famille, nb_traces, nb_waypoints).order_by(func.lower(Famille.nom))
+    )
+    return [
+        {
+            "id": fa.id,
+            "nom": fa.nom,
+            "couleur": fa.couleur,
+            "nb_traces": nt,
+            "nb_waypoints": nw,
+        }
+        for fa, nt, nw in lignes
+    ]
+
+
+@app.post("/familles", status_code=201)
+def creer_famille(donnees: FamilleEntree, db: Session = Depends(get_db)):
+    nom = donnees.nom.strip()
+    if not nom:
+        raise HTTPException(status_code=400, detail="Le nom de la famille est vide.")
+    if db.scalar(select(Famille).where(func.lower(Famille.nom) == nom.lower())):
+        raise HTTPException(status_code=409, detail="Cette famille existe déjà.")
+    famille = Famille(nom=nom, couleur=donnees.couleur)
+    db.add(famille)
+    db.commit()
+    return {"id": famille.id, "nom": famille.nom, "couleur": famille.couleur}
+
+
+@app.patch("/familles/{famille_id}")
+def modifier_famille(famille_id: int, donnees: FamilleMaj, db: Session = Depends(get_db)):
+    famille = db.get(Famille, famille_id)
+    if not famille:
+        raise HTTPException(status_code=404, detail="Famille introuvable.")
+
+    if donnees.nom is not None:
+        nom = donnees.nom.strip()
+        if not nom:
+            raise HTTPException(status_code=400, detail="Le nom de la famille est vide.")
+        doublon = db.scalar(
+            select(Famille).where(
+                func.lower(Famille.nom) == nom.lower(), Famille.id != famille_id
+            )
+        )
+        if doublon:
+            raise HTTPException(status_code=409, detail="Cette famille existe déjà.")
+        famille.nom = nom
+
+    if donnees.couleur is not None:
+        famille.couleur = donnees.couleur
+
+    db.commit()
+    return {"id": famille.id, "nom": famille.nom, "couleur": famille.couleur}
+
+
+@app.delete("/familles/{famille_id}", status_code=204)
+def supprimer_famille(famille_id: int, db: Session = Depends(get_db)):
+    famille = db.get(Famille, famille_id)
+    if not famille:
+        raise HTTPException(status_code=404, detail="Famille introuvable.")
+    # on supprime l'appartenance, jamais les tracés ni les waypoints eux-mêmes
+    db.execute(delete(familles_traces).where(familles_traces.c.famille_id == famille_id))
+    db.execute(delete(familles_waypoints).where(familles_waypoints.c.famille_id == famille_id))
+    db.delete(famille)
+    db.commit()
+
+
+@app.put("/traces/{trace_id}/familles")
+def definir_familles_trace(
+    trace_id: int, donnees: FamillesElement, db: Session = Depends(get_db)
+):
+    trace = db.get(Trace, trace_id)
+    if not trace:
+        raise HTTPException(status_code=404, detail="Trace introuvable.")
+    trace.familles = list(db.scalars(select(Famille).where(Famille.id.in_(donnees.famille_ids))))
+    db.commit()
+    return {"id": trace.id, "familles": [f.id for f in trace.familles]}
+
+
+@app.put("/waypoints/{waypoint_id}/familles")
+def definir_familles_waypoint(
+    waypoint_id: int, donnees: FamillesElement, db: Session = Depends(get_db)
+):
+    waypoint = db.get(Waypoint, waypoint_id)
+    if not waypoint:
+        raise HTTPException(status_code=404, detail="Waypoint introuvable.")
+    waypoint.familles = list(db.scalars(select(Famille).where(Famille.id.in_(donnees.famille_ids))))
+    db.commit()
+    return {"id": waypoint.id, "familles": [f.id for f in waypoint.familles]}
+
+
+@app.post("/familles/{famille_id}/ajouter")
+def ajouter_a_famille(famille_id: int, donnees: ElementsFamille, db: Session = Depends(get_db)):
+    if not db.get(Famille, famille_id):
+        raise HTTPException(status_code=404, detail="Famille introuvable.")
+
+    ajoutes = {}
+    for table, colonne, modele, ids in (
+        (familles_traces, "trace_id", Trace, donnees.trace_ids),
+        (familles_waypoints, "waypoint_id", Waypoint, donnees.waypoint_ids),
+    ):
+        # on ne lit que les identifiants (pas les géométries, qui sont lourdes)
+        existants = set(db.scalars(select(modele.id).where(modele.id.in_(ids))))
+        deja = set(
+            db.scalars(select(table.c[colonne]).where(table.c.famille_id == famille_id))
+        )
+        nouveaux = existants - deja
+        if nouveaux:
+            db.execute(
+                insert(table), [{"famille_id": famille_id, colonne: i} for i in nouveaux]
+            )
+        ajoutes[colonne] = len(nouveaux)
+
+    db.commit()
+    return ajoutes
+
+
+@app.post("/familles/{famille_id}/retirer")
+def retirer_de_famille(famille_id: int, donnees: ElementsFamille, db: Session = Depends(get_db)):
+    if not db.get(Famille, famille_id):
+        raise HTTPException(status_code=404, detail="Famille introuvable.")
+    for table, colonne, ids in (
+        (familles_traces, "trace_id", donnees.trace_ids),
+        (familles_waypoints, "waypoint_id", donnees.waypoint_ids),
+    ):
+        db.execute(
+            delete(table).where(table.c.famille_id == famille_id, table.c[colonne].in_(ids))
+        )
+    db.commit()
+    return {"ok": True}
+
 # ---------- Frontend (toujours en dernier) ----------
 
 FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
-app.mount("/", StaticFiles(directory=FRONTEND, html=True), name="frontend")
+class StaticSansCache(StaticFiles):
+    async def get_response(self, path, scope):
+        reponse = await super().get_response(path, scope)
+        reponse.headers["Cache-Control"] = "no-cache"  # revalider à chaque chargement
+        return reponse
+
+
+app.mount("/", StaticSansCache(directory=FRONTEND, html=True), name="frontend")
